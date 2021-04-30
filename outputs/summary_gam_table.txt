@@ -1,0 +1,2 @@
+".id"	"formula"	"n"	"family.function"	"family.link"	"deviance"	"null.deviance"	"r.sq"	"s.edf"	"s.ref.df"	"NA."	"F.df1"	"F.value"	"p"
+"global_model"	" mean_biomass_log ~ s(Year2, k = 20)"	44	"gaussian"	"identity"	1.5226793938816	25.5455227489017	0.926294874902056	8.22521574947593	66.7011135951161	8.22521574947593	19	28.4424137422805	0

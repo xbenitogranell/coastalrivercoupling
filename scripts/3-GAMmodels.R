@@ -16,116 +16,173 @@ str(catches_clean)
 
 #Species to be included in the models (>30% average biomass)
 include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
-             "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada")
-
-#Preprocess the data
-fishes <- catches_clean %>%
-  filter(!is.na(Kgs)) %>% #remove NANs
-  #filter(Species %in% include) %>% #select species to be modelled
-  mutate(log_biomass=log10(Kgs)) %>%
-  mutate(spp = factor(Species)) %>%
-  mutate(year_f=factor(Year2))
-
-#check number of spp
-fishes$spp <- droplevels(fishes$spp)
-levels(fishes$spp)
-
-# Homogenity of variances Levene's test 
-leveneTest(log_biomass ~ year_f, data = fishes)
-leveneTest(log_biomass ~ Lagoon, data = fishes)
+             "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus")
 
 
 ## This is to fit a GAM on temporal total biomass
-#Calculate average biomass per species per year and lagoon
+#Calculate average biomass per year and lagoon
 fishes_comm <- catches_clean %>%
   filter(!is.na(Kgs)) %>% #remove NANs
-  filter(Species %in% include) %>% #select species to be modelled
-  group_by(Year2, Lagoon) %>%
+  filter(!str_detect(Species, "Ind")) %>% #drop Undetermined species
+  #filter(Species %in% include) %>% #select species to be modeled
+  group_by(Year2) %>%
   summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
-  mutate(mean_biomass_log = log10(mean_biomass+1)) %>%
-  ungroup() %>%
+  mutate(mean_biomass_log = log(mean_biomass)) %>%
+  mutate(year_f=factor(Year2)) %>%
   as.data.frame()
   
 
 # Global model
 set.seed(10)
-model_gam <- gam(mean_biomass ~ s(Year2, k=20),
-                 data=fishes_comm, family = Gamma(link="log"),  
+model_gam <- gam(mean_biomass ~ s(Year2, k=40),
+                 data=fishes_comm, family = Gamma(link = "log"),  
                  method = "REML", select=TRUE)
+appraise(model_gam)
+
+model_gam_log <- gam(mean_biomass_log ~ s(Year2, k=30),
+                 data=fishes_comm, family = gaussian(link="identity"),  
+                 method = "REML", select=TRUE)
+appraise(model_gam_log)
+
+#Compare different model fits using AIC
+AIC(model_gam, model_gam_log)
+
+model_gam <- model_gam_log
 
 pacf(residuals(model_gam)) #check autocorrelation
 
 #check gam outputs
 gam.check(model_gam)
+appraise(model_gam)
 draw(model_gam)
 summary(model_gam)
 
 
+#controlling for temporal autocorrelation
+library(lme4)
+model_gamm <- gamm(mean_biomass_log ~ s(Year2, k=20),
+                  data=fishes_comm, family = gaussian(link = "identity"),  
+                  method = "REML", correlation=corCAR1(form = ~Year2))
+
+AIC_table <- AIC(model_gam, model_gamm$lme)%>%
+  rownames_to_column(var= "Model")%>%
+  mutate(data_source = rep(c("diatom_data")))%>%
+  group_by(data_source)%>%
+  mutate(deltaAIC = AIC - min(AIC))%>%
+  ungroup()%>%
+  dplyr::select(-data_source)%>%
+  mutate_at(.vars = vars(df,AIC, deltaAIC), 
+            .funs = funs(round,.args = list(digits=0)))
+AIC_table
+
+
+
+#Create list of GAM fit and observation data
+full_model_data <- list(fishes_comm)
+fits <- list(model_gam)
+names(fits) <- c("global_model")
+
 # Fit GAM model on temporal biomass for each lagoon separately
-LagoonData <- split(fishes_comm, fishes_comm$Lagoon)
+#Calculate average biomass per year and lagoon
+fishes_comm_lagoon <- catches_clean %>%
+  filter(!is.na(Kgs)) %>% #remove NANs
+  filter(!str_detect(Species, "Ind")) %>% #drop Undetermined species
+  filter(Species %in% include) %>% #select species to be modeled
+  group_by(Year2, Lagoon) %>%
+  summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
+  mutate(mean_biomass_log = log(mean_biomass)) %>%
+  as.data.frame()
+
+
+# Create list of lagoon datasets
+LagoonData <- split(fishes_comm_lagoon, fishes_comm_lagoon$Lagoon)
 
 ## fit mean biomass across lagoons  
 fitGam <- function(i, data, kk, select=TRUE) {
   Ldata <- data[[i]]
   k <- kk[i]
-  fit <- gam(mean_biomass ~ s(Year2, k = k, bs="ad"),
+  fit <- gam(mean_biomass_log ~ s(Year2, k = k),
              data = Ldata, method = "REML",
-             family = Gamma(link="log"))
+             family = gaussian(link = "identity"))
 }
 
 lagoons <- c("Encanyissada", "Tancada", "Canal vell", "Goleta")
-k <- c(rep(20,4))
+k <- c(rep(40,4))
 fits <- lapply(seq_along(LagoonData[lagoons]), fitGam, data = LagoonData[lagoons], kk = k)
 names(fits) <- names(LagoonData[lagoons])
 
 #lapply(fits, summary)
 
-
-##
-gamAIC <- list()
-
-for(i in 1:length(LagoonData[lagoons])){
-  lagoon <- LagoonData[[i]]
-  var<-lagoon$mean_biomass_log
-  years<-lagoon$Year2
-  lagoon.data<-as.data.frame(cbind(var,years))
-  names(lagoon.data)<-c("var","years")
-  gamAIC$m1[[i]] <- gamm(var~s(years), data=lagoon.data)
-  gamAIC$m2[[i]] <- gamm(var~s(years), correlation = corCAR1(form = ~ years),
-                         data=lagoon.data)
-  gamAIC$anova[[i]] <- anova(gamAIC$m1[[i]]$lme, gamAIC$m2[[i]]$lme)
+#Create a function the extract GAM results
+GAM_results <- function(i, models){
+  model <- models[[i]]
+  formula <- paste("", format(model$formula))
+  n <- as.numeric(anova(model)["n"]) #take n samples
+  family.function <- model$family[1] #take family
+  family.link <- model$family[2] #take link
+  fit.deviance <- model$deviance #take model deviance
+  null.deviance <- model$null.deviance #take null model deviance
+  r.sq <- anova(model)["r.sq"] #take r square 
+  s.table <- anova(model)["s.table"] #take summary table of smooth terms 
   
+  #this is for extract F value and F df
+  Null.n <- as.numeric(model$df.null + 1)
+  Fit.n <- as.numeric(model$df.null + 1)
+  Null.res.df <- as.numeric(model$df.null)
+  Fit.res.df <- as.numeric(model$df.residual) 
+  Null.fac.df <- as.numeric(Null.n - Null.res.df)
+  Fit.fac.df <- as.numeric(Fit.n - Fit.res.df)
+  F.df1 <- as.numeric(Fit.fac.df - Null.fac.df)
+  F.df2 <- as.numeric(Fit.n - Fit.fac.df)
+  Null.MS <- as.numeric((null.deviance - fit.deviance) / (Fit.fac.df - Null.fac.df))
+  Fit.MS <- as.numeric(fit.deviance / (Fit.n - Fit.fac.df))	  
+  F.value <- as.numeric(Null.MS / Fit.MS)
+  
+  table <- cbind.data.frame(formula,n,family.function,family.link,fit.deviance,null.deviance,r.sq,
+                            F.df1,F.value,s.table) #combine extracted columns
+  colnames(table) <- c("formula","n","family.function", "family.link", "deviance", "null.deviance","r.sq",
+  "s.edf", "s.ref.df", NA, "F.df1", "F.value", "p") #
+  return(table)
+
 }
 
-names(gamAIC$anova) <- names(LagoonData) 
+summaryGam <- lapply(seq_along(fits), GAM_results, models=fits)
+names(summaryGam) <- names(fits)
+
+#extract dataframes from the summary GAM list and save table
+summary_Gam_tables <- plyr::ldply(summaryGam, data.frame) 
+write.table(summary_Gam_tables, file = "outputs/summary_gam_lagoons_table.txt", 
+            sep = "\t", na = "", col.names = TRUE, row.names = FALSE)
 
 
 #Load function to calculate first derivative on fish community biomass
 source("scripts/Deriv.R")
 
 ## Apply derivative function to global model (list)
-#fits <- list(model_gam)
-#names(fits) <- c("model_gam_comm")
-
 derivs <- lapply(fits, Deriv, n = 200)
 Term <- "Year2"
 confints <- lapply(derivs, confint, term = Term)
 
+#Create dataset to predict model fitted values
 makePredData <- function(data, n = 200) {
   data.frame(Year2 = seq(min(fishes_comm$Year2), max(fishes_comm$Year2), length.out = n))
 }
 
+#wrap-up the function
 predData <- lapply(fits, makePredData)
 
+#Predict results of gam model  
 modelPreds <- function(i, models, newdata, se.fit = TRUE) {
   predict(models[[i]], newdata = newdata[[i]], se.fit = se.fit, type="response")
 }
 
+#wrap-up the function
 predTrends <- lapply(seq_along(fits), modelPreds,
                      models = fits, newdata = predData)
 
 names(predTrends) <- names(fits)
 
+#Create a function for calculating first derivatives
 signifWrap <- function(i, data, derivObj, term, ciObj) {
   signifD(data[[i]]$fit,
           d = derivObj[[i]][[Term]]$deriv,
@@ -133,12 +190,13 @@ signifWrap <- function(i, data, derivObj, term, ciObj) {
           ciObj[[i]][[Term]]$lower)
 }
 
+#wrap-up the function
 signifCores <- lapply(seq_along(fits), signifWrap, data = predTrends,
                       derivObj = derivs, term = Term, ciObj = confints)
 
-
 names(signifCores) <- names(fits)
 
+# Function to plot GAM derivative trends
 plotTrends <- function(i, trends, dates, signifs, obs, cex = 0.8) {
   ptitle <- names(dates)[i]
   trends <- trends[[i]]
@@ -147,14 +205,14 @@ plotTrends <- function(i, trends, dates, signifs, obs, cex = 0.8) {
   fit <- trends$fit
   uci <- fit + (1.96 * trends$se.fit)
   lci <- fit - (1.96 * trends$se.fit)
-  mean_biomass <- obs[[i]]$mean_biomass
+  mean_biomass <- obs[[i]]$mean_biomass_log
   incr <- unlist(signifs$incr)
   decr <- unlist(signifs$decr)
   incr.col <- "blue"
   decr.col <- "red"
   ylim <- range(mean_biomass, fit, uci, lci) 
   plot(dates, fit, ylim = ylim, type = "l",
-       ylab="Total Biomass (Kgs)", xlab="Years", main=ptitle)
+       ylab="Log(Biomass (Kgs))", xlab="Years", main=ptitle)
   points(obs[[i]]$Year2, mean_biomass, pch = 16, cex = cex)
   lines(dates, uci, lty = "dashed")
   lines(dates, lci, lty = "dashed")
@@ -162,17 +220,28 @@ plotTrends <- function(i, trends, dates, signifs, obs, cex = 0.8) {
   lines(dates, decr, col = decr.col, lwd = 3)
 }
 
-pdf("outputs/biomasses_gam_fits_derivatives.pdf",
+pdf("outputs/catches_lagoons_gam_fits_derivatives.pdf",
     height = 8, width = 12,
     pointsize = 12)
 
 layout(1)
-par(mfrow=c(length(fits),1),mar=c(0,3,1,2),oma=c(3,3,2,2))
-lapply(seq_along(fits), plotTrends, trends = predTrends,
+#par(mfrow=c(5,1),mar=c(0,0,1,0),oma=c(3,3,2,2))
+
+par(mfrow=c(length(fits),1),mar=c(0,4,1,2),oma=c(3,3,2,2))
+lapply(seq_along(fits[lagoons]), plotTrends, trends = predTrends,
        dates = predData, signifs = signifCores, obs = LagoonData[lagoons], cex = 1)
 dev.off()
 
-#extract dataframes from list
+# For global model
+lapply(seq_along(fits), plotTrends, trends = predTrends,
+       dates = predData, signifs = signifCores, obs = full_model_data, cex = 1)
+
+
+
+#--------------#
+
+
+#extract dataframes from lists
 df1 <- plyr::ldply(predData, data.frame) 
 df2 <- plyr::ldply(predTrends, data.frame)[,-1] #this is to remove first column .id to avouid duplicates
 df3 <- plyr::ldply(signifCores, data.frame) [,-1] 
@@ -180,9 +249,28 @@ df3 <- plyr::ldply(signifCores, data.frame) [,-1]
 gamderivAll <- cbind(df1, df2, df3) 
 colnames(gamderivAll) <- c("lake", "Year", "fit", "se.fit", "incr", "decr") 
 
-
+#Calculate standard error
 gamderivAll <- mutate(gamderivAll, upper = fit + (2 * se.fit),
                       lower = fit - (2 * se.fit))
+
+deriv_gam_plot <- ggplot(gamderivAll) + 
+  geom_line(aes(x = Year, y = fit)) +
+  geom_line(aes(x = Year, y = incr), color="blue", size=1.5) +
+  geom_line(aes(x = Year, y = decr), color="red", size=1.5) +
+  geom_ribbon(aes(x=Year, 
+                  ymin = lower,
+                  ymax = upper), alpha=0.1)+  
+  geom_point(data=fishes_comm, aes(x = Year2, y = mean_biomass_log), size=1,color="black") +
+  labs(y = "Log(Total biomass (Kgs))", x = "Years") +
+  ggtitle("Ebro Delta Coastal Lagoons Fish catches trend")
+deriv_gam_plot
+
+ggsave("outputs/gam_derivative_globalmodel_catches.png",
+       plot = deriv_gam_plot,
+       width=8,
+       height=6,
+       units="in",
+       dpi = 400)
 
 # this is to manually sort lakes
 gamderivAll$Lake_f = factor(gamderivAll$lake, levels=c("Encanyissada", "Tancada", "Canal vell", "Goleta"))
@@ -190,12 +278,12 @@ gamderivAll$Lake_f = factor(gamderivAll$lake, levels=c("Encanyissada", "Tancada"
 deriv_plot <- ggplot(gamderivAll) +
   facet_grid(lake~., scales = "free_y") +
   geom_line(aes(x = Year, y = fit)) +
-  geom_line(aes(x = Year, y = incr), color="blue", size=1) +
-  geom_line(aes(x = Year, y = decr), color="red", size=1) +
+  geom_line(aes(x = Year, y = incr), color="blue", size=1.5) +
+  geom_line(aes(x = Year, y = decr), color="red", size=1.5) +
   geom_ribbon(aes(x=Year, 
                   ymin = lower,
-                  ymax = upper), alpha=0.2)+  
-  geom_point(data=fishes_comm, aes(x = Year2, y = mean_biomass), size=1,color="black") +
+                  ymax = upper), alpha=0.1)+  
+  geom_point(data=fishes_comm_lagoon, aes(x = Year2, y = mean_biomass_log), size=1,color="black") +
   labs(y = "Total biomass (Kgs)", x = "Years") 
 deriv_plot
 
@@ -207,10 +295,28 @@ deriv_plot
 
 ## This is to model temporal trends in biomass between spp 
 #model S HGAM : similar smootheness between groups (spp) without global smooth 
+
+#Species to be included in the models (>30% average biomass)
+include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
+             "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada")
+
+#Calculate average biomass per year and lagoon
+fishes_spp <- catches_clean %>%
+  filter(!is.na(Kgs)) %>% #remove NANs
+  filter(Species %in% include) %>% #select species to be modeled
+  group_by(Year2, Species) %>%
+  summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
+  mutate(mean_biomass_log = log(mean_biomass)) %>%
+  mutate(year_f=factor(Year2)) %>%
+  mutate(spp=factor(Species)) %>%
+  as.data.frame()
+
+levels(fishes_spp$spp)
+
 set.seed(10) #set a seed so this is repeatable
 
-model_gam_S <- gam(Kgs ~ s(Year2, spp, k=40, bs="fs"),
-                    data=fishes, family = Gamma(link = "log"), 
+model_gam_S <- gam(mean_biomass ~ s(Year2, spp, k=20, bs="fs"),
+                    data=fishes_spp, family = Gamma(link = "log"), 
                     method = "REML", select = TRUE)
 
 gam.check(model_gam_S)
@@ -218,9 +324,9 @@ draw(model_gam_S)
 summary(model_gam_S)
 
 #model I HGAM: different smootheness for each taxa without global smooth
-model_gam_I<- gam(Kgs ~ s(Year2, by=spp, k=40, bs="fs") +
+model_gam_I<- gam(mean_biomass ~ s(Year2, by=spp, k=30, bs="fs") +
                      s(spp, bs="re"),
-                   data=fishes, family = Gamma(link = "log"),
+                   data=fishes_spp, family = Gamma(link = "log"),
                    method = "REML", select=TRUE)
 
 gam.check(model_gam_I)
@@ -243,8 +349,8 @@ AIC_table
 
 
 #Create synthetic data to predict over a range of ages
-fishes_plot_data <- with(fishes, as_tibble(expand.grid(Year2 = seq(min(fishes$Year2), max(fishes$Year2)),
-                                                        spp = factor(levels(fishes$spp)))))
+fishes_plot_data <- with(fishes_spp, as_tibble(expand.grid(Year2 = seq(min(fishes_spp$Year2), max(fishes_spp$Year2)),
+                                                        spp = factor(levels(fishes_spp$spp)))))
 
 fishes_modS_fit <- predict(model_gam_S, 
                          newdata = fishes_plot_data,
@@ -283,7 +389,7 @@ fishes_plot <- ggplot(fishes_plot_data) +
                   ymax = upper,
                   fill = model),
               alpha=0.2)+
-  geom_point(data= fishes, aes(x = Year2, y = Kgs), size=0.06) +
+  geom_point(data= fishes_spp, aes(x = Year2, y = mean_biomass), size=0.06) +
   #scale_y_continuous(trans = "log10")+
   geom_line(aes(x = Year2, y = fit, color = model))+
   labs(y = "Biomass (Kgs)", x = "Years") +
@@ -295,7 +401,6 @@ fishes_plot <- ggplot(fishes_plot_data) +
         strip.text = element_text(size=10))
 
 fishes_plot
-
 
 
 

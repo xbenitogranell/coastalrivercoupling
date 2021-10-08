@@ -31,6 +31,7 @@ fishes_comm <- catches_clean %>%
   mutate(year_f=factor(Year2)) %>%
   as.data.frame()
   
+#plot(cpt.meanvar(fishes_comm$mean_biomass_log,method="BinSeg",pen.value=0.01))
 
 # Global model
 set.seed(10) #allow replication of results

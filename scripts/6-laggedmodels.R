@@ -1,9 +1,10 @@
 ## EXPLORATORY ANALYSIS OF THE EFFECT OF LAGGED RIVER DYNAMICS ON COASTAL FISHERIES 
 
-source("scripts/functions_lagged.R")
-
 #Clear workspace
 rm(list=ls(all=TRUE))
+
+#load lag functions
+source("scripts/functions/functions_lags.R")
 
 #Load functions used
 library(tidyverse)
@@ -11,28 +12,55 @@ library(ggplot2)
 library(cowplot)
 
 # Read in CHE data
-data_che_raw <- read.csv("data/data_che_full.csv", sep=";", dec = ".")
-str(data_che_raw)
+data_che <- read.csv("data/data_che_full.csv", sep=";")
+head(data_che)
+str(data_che)
 
-#replace commas with dots for decimals, replace NAs with 0, round to 2 decimals, and bind columns
-data_che <- as.data.frame(apply(apply(data_che_raw[,7:ncol(data_che_raw)], 2, gsub, patt=",", replace="."), 2, as.numeric))
-data_che <- data_che %>% mutate_all(~replace(., is.na(.), 0)) %>% mutate(across(where(is.numeric), round, 2))
-data_che <- cbind(data_che_raw[,c(2:6)], data_che) %>%
-  rename_with(~ tolower(gsub(".", "_", .x, fixed = TRUE))) 
+# transform to numeric
+df1 <- data.frame(apply(apply(data_che[,7:ncol(data_che)], 2, gsub, patt=",", replace="."), 2, as.numeric))
+data_che <- cbind(data_che[,1:6], df1) 
+data_che_Tortosa <- data_che %>% filter(Sampling_Point==2) #filter cases Tortosa station
 
+#Calculate mean annual flow Data CHE (1980-2004)
+year_mean_flow_che <- data_che_Tortosa %>%
+  mutate(Year_f=factor(Year)) %>%
+  rename(flow=CaudalÂ.enÂ.superficieÂ..m3.s.) %>%
+  #filter(!is.na(CaudalÂ.enÂ.superficieÂ..m3.s)) %>% #remove NANs
+  group_by(Year_f) %>% 
+  summarise(mean_annual_flow=mean(flow, na.rm = T)) %>%
+  mutate(mean_annual_flow=round(mean_annual_flow,2)) 
 
-#Read in CAT data
-data_cat_raw <- read.csv("data/data_cat_full.csv", sep=";", dec = ".")
-str(data_cat_raw)
+## CAT
+data_cat <- read.csv("data/data_cat_full.csv", sep=";")
+head(data_cat)
+str(data_cat)
+data_cat <- data_cat[-1,] #remove first row which contains variable units
 
-# Remove 2nd row (units)
-data_cat_raw <- data_cat_raw[-1,]
+# transform to numeric
+df2 <- data.frame(apply(apply(data_cat[,3:ncol(data_cat)], 2, gsub, patt=",", replace="."), 2, as.numeric))
+data_cat <- cbind(data_cat[,1:2], df2)
+plot.ts(data_cat$Chl.Total)
 
-#replace commas with dots for decimals, replace NAs with 0, round to 2 decimals, and bind columns
-data_cat <- as.data.frame(apply(apply(data_cat_raw[,3:ncol(data_cat_raw)], 2, gsub, patt=",", replace="."), 2, as.numeric))
-data_cat <- data_cat %>% mutate_all(~replace(., is.na(.), 0)) %>% mutate(across(where(is.numeric), round, 2))
-data_cat <- cbind(data_cat_raw[,c(1:2)], data_cat) %>%
-  mutate(year=Year)
+year_mean_chla <- data_cat %>%
+  mutate(Year_f=factor(Year)) %>%
+  group_by(Year_f) %>% 
+  summarise(mean_annual_chla=mean(Chl.Total, na.rm = T)) %>%
+  mutate(mean_annual_chla=round(mean_annual_chla,2)) %>%
+  filter(!is.na(mean_annual_chla)) #remove NANs
+
+## CEDEX historical flows (Datos mensuales de estaciones de aforo en río)
+hist_flow <- read.csv("data/mensual_a_EBRO.csv", sep=";") %>%
+  filter(indroea==9027) #filter cases Tortosa station
+
+# this is to create year and month columns
+test <- data.frame(str_split_fixed(hist_flow$anomes, "", n = 6))
+hist_flow$Year <- str_c(test$X1,'',test$X2,'',test$X3,'',test$X4)
+hist_flow$Month <- str_c(test$X5,'',test$X6)
+hist_flow <- hist_flow %>% mutate(Year=as.numeric(Year)) %>%
+  mutate(Month=as.numeric(Month))
+
+head(hist_flow)
+str(hist_flow)
 
 
 #Prepare fish catches data
@@ -51,34 +79,45 @@ fishes_spp <- catches_clean %>%
   group_by(Year2) %>%
   summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
   mutate(mean_biomass_log = log(mean_biomass)) %>%
-  mutate(year=Year2) %>%
+  mutate(Year=Year2) %>%
   as.data.frame()
 
 
-# subset river flow AND other physico-chemical variables, and JOIN with fish catches
-data_full <- data_che %>% select(day, month, year, caudalâ_enâ_superficieâ__m3_s_,
-                                 fã³sforoâ_totalâ__mg_lâ_p_,fosfatosâ__mg_lâ_po4_) %>%
-  rename(flow=caudalâ_enâ_superficieâ__m3_s_) %>%
-  rename(Total_phosphorous=fã³sforoâ_totalâ__mg_lâ_p_) %>%
-  rename(SRP=fosfatosâ__mg_lâ_po4_) %>%
-  right_join(fishes_spp, by = 'year') %>%
-  right_join(data_cat[c("year","Chl.Total")], by='year')   #here join chl data from CAT dataset
+# subset river flow from CHE AND other physico-chemical variables, and JOIN with fish catches
+data_full <- data_che_Tortosa %>% select(Day, Month, Year, CaudalÂ.enÂ.superficieÂ..m3.s.,
+                                         FÃ³sforoÂ.TotalÂ..mg.LÂ.P.,FosfatosÂ..mg.LÂ.PO4.) %>%
+  rename(flow=CaudalÂ.enÂ.superficieÂ..m3.s.) %>%
+  rename(Total_phosphorous=FÃ³sforoÂ.TotalÂ..mg.LÂ.P.) %>%
+  rename(SRP=FosfatosÂ..mg.LÂ.PO4.) %>%
+  full_join(fishes_spp, by = 'Year') %>%
+  full_join(data_cat[c("Year","Chl.Total")], by='Year') %>% #here join chl data from CAT dataset
+  full_join(hist_flow[c("Year", "qmedmes")], by='Year')
   
 #save the dataset
 #write.csv(data_full, "outputs/river_fisheries_data.csv")
 
 ## Generate lagged datasets
 # Prepare data
-env <- data_full %>% group_by(year) %>%
-  summarise(environment=mean(flow)) %>%
+env <- data_full %>% group_by(Year) %>%
+  summarise(environment=mean(qmedmes, na.rm=TRUE)) %>%
+  filter(!is.na(environment)) %>% #remove NANs
   as.data.frame()
 
-catches <- data_full %>% group_by(year) %>%
-  summarise(biomass=mean(mean_biomass_log)) %>%
-  as.data.frame()
+catches <- data_full %>% group_by(Year) %>%
+  summarise(biomass=mean(mean_biomass)) %>%
+  filter(!is.na(biomass)) %>% #remove NANs
+  as.data.frame() %>%
+  left_join(env, by="Year")
+
+
+env <- catches[,c(1,3)]
+env$Year <- seq(1, length(env$Year), by=1)
+catches <- catches[,c(1,2)]
+catches$Year <- seq(1, length(catches$Year), by=1)
+
 
 ## Backward lags
-lags<-1:10
+lags<-1:30
 
 #backward dataset 
 #to assess the effect of “past” environment (e.g. flow; data.to.lag) on fish catches (reference.data)

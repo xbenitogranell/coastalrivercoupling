@@ -17,7 +17,7 @@ str(catches_clean)
 
 #Species to be included in the models (>30% average biomass)
 include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
-             "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus")
+             "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus", "Mugil cephalus")
 
 
 #Calculate average biomass per year and lagoon
@@ -37,7 +37,7 @@ levels(fishes_spp$spp) #check number of species (levels)
 #model S HGAM: similar wiggliness between groups (spp) without a global smooth 
 set.seed(10) #set a seed so this is repeatable
 
-model_gam_S <- gam(mean_biomass ~ s(Year2, spp, k=30, bs="fs"),
+model_gam_S <- gam(mean_biomass ~ s(Year2, spp, k=20, bs="fs"),
                    data=fishes_spp, family = Gamma(link = "log"), 
                    method = "REML", select = TRUE)
 
@@ -47,7 +47,7 @@ draw(model_gam_S)
 summary(model_gam_S)
 
 #model I HGAM: different wiggliness for each taxa without a global smooth
-model_gam_I<- gam(mean_biomass ~ s(Year2, by=spp, k=30, bs="fs") +
+model_gam_I<- gam(mean_biomass ~ s(Year2, by=spp, k=20, bs="fs") +
                     s(spp, bs="re"),
                   data=fishes_spp, family = Gamma(link = "log"),
                   method = "REML", select=TRUE)

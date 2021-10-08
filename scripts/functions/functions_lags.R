@@ -7,25 +7,25 @@ backwardLags <- function(lags, reference.data, data.to.lag){
   #df to store the lagged data
   lag.data = data.frame(biomass=double(), environment=double(), lag=integer())
   
-  #iterates through erica lines
+  #iterates through catches lines
   for (catch.case in 1:nrow(catches)){
     
-    #take a line of the erica dataframe and replicate it as many times as lags are
+    #take a line of the biomass dataframe and replicate it as many times as lags are
     catch.value = rep(catches[catch.case, "biomass"], max(lags))
 
     #get the age of the replicated line
-    catch.case.year=catches[catch.case, "year"]
+    catch.case.year=catches[catch.case, "Year"]
     catch.case.year.plus.lags=catch.case.year + (1 * max(lags))
-    
+
     #if beyond maximum age
-    if (catch.case.year.plus.lags > max(env$year)){break}
+    if (catch.case.year.plus.lags > max(env$Year)){break}
     
-    #get from char.interpolated the lines with age > age.erica && age <= age.erica + lags
-    env.temp=env[which(env$year > catch.case.year & env$year <= catch.case.year.plus.lags), "environment"]
+    #get from flow datasets the lines with Year > Year.catches && Year <= Year.catches + lags
+    env.temp=env[which(env$Year > catch.case.year & env$Year <= catch.case.year.plus.lags), "environment"]
     
     #put the data together
     env.temp=data.frame(biomass=catch.value, environment=env.temp, lag=lags)
-    
+   
     #put them in the final table
     lag.data=rbind(lag.data, env.temp)
     

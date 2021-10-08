@@ -8,7 +8,7 @@ library(tidyverse)
 library(ggplot2)
 
 # Read in HGAM S & I fitted values
-fishes_plot_data <- read.csv("outputs/HGAM_fishes_data.csv")
+fishes_plot_data <- read.csv("outputs/HGAM_fishes_data.csv", row.names=1)
 
 ##Derivatives and posterior distribution simulation
 set.seed(10) #set a seed so this is repeatable
@@ -20,11 +20,11 @@ years <- seq(min(fishes_plot_data$Year2),
              max(fishes_plot_data$Year2),
              length.out = n_length)
 
-#model <- model_gam_S
-model <- model_gam_I
+model <- model_gam_S
+#model <- model_gam_I
 
-#pred <- diat_modS_fit
 pred <- fishes_modI_fit
+#pred <- fishes_modI_fit
 
 # Generate multivariate normal simulations of model coefficients
 random_coefs <- t(rmvn(n_sims, mu = coef(model),V = vcov(model)))

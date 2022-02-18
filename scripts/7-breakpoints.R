@@ -4,9 +4,11 @@
 #Install libraries 
 #install.packages("strucchange")
 library(strucchange)
+library(changepoint)
 
+library(tidyverse)
 # remotes::install_github("lindeloev/mcp")
-# library(mcp)
+#library(mcp)
 
 ## Read in environmental data
 # CHE
@@ -33,7 +35,7 @@ year_mean_flow <- data_che_Tortosa %>%
 plot(cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01))
 
 
-# CAT
+# CAT dataset
 data_cat <- read.csv("data/data_cat_full.csv", sep=";")
 head(data_cat)
 str(data_cat)
@@ -82,4 +84,6 @@ year_mean_flow <- hist_flow %>%
   
 plot.ts(year_mean_flow$mean_annual_flow)
 plot(cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01))
+cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01)
 
+year_mean_flow[52,]

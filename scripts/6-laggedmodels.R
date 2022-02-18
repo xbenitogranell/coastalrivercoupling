@@ -10,6 +10,7 @@ source("scripts/functions/functions_lags.R")
 library(tidyverse)
 library(ggplot2)
 library(cowplot)
+library(nlme)
 
 # Read in CHE data
 data_che <- read.csv("data/data_che_full.csv", sep=";")
@@ -41,6 +42,7 @@ df2 <- data.frame(apply(apply(data_cat[,3:ncol(data_cat)], 2, gsub, patt=",", re
 data_cat <- cbind(data_cat[,1:2], df2)
 plot.ts(data_cat$Chl.Total)
 
+#Calculate mean annual chla data
 year_mean_chla <- data_cat %>%
   mutate(Year_f=factor(Year)) %>%
   group_by(Year_f) %>% 
@@ -72,7 +74,7 @@ str(catches_clean)
 include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
              "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus")
 
-#Calculate average biomass per year of the most common fishes cacthed
+#Calculate average biomass per year of the most common fishes cached
 fishes_spp <- catches_clean %>%
   filter(!is.na(Kgs)) %>% #remove NANs
   filter(Species %in% include) %>% #select species to be modeled
@@ -85,31 +87,63 @@ fishes_spp <- catches_clean %>%
 
 # subset river flow from CHE AND other physico-chemical variables, and JOIN with fish catches
 data_full <- data_che_Tortosa %>% select(Day, Month, Year, CaudalÂ.enÂ.superficieÂ..m3.s.,
-                                         FÃ³sforoÂ.TotalÂ..mg.LÂ.P.,FosfatosÂ..mg.LÂ.PO4.) %>%
+                                         FÃ³sforoÂ.TotalÂ..mg.LÂ.P.,FosfatosÂ..mg.LÂ.PO4.,
+                                         TemperaturaÂ.delÂ.aguaÂ..ÂºC.,
+                                         OxÃ.genoÂ.disueltoÂ..mg.LÂ.O2.,
+                                         MateriasÂ.enÂ.suspensiÃ³nÂ..mg.L.) %>%
   rename(flow=CaudalÂ.enÂ.superficieÂ..m3.s.) %>%
   rename(Total_phosphorous=FÃ³sforoÂ.TotalÂ..mg.LÂ.P.) %>%
   rename(SRP=FosfatosÂ..mg.LÂ.PO4.) %>%
+  rename(WaterT=TemperaturaÂ.delÂ.aguaÂ..ÂºC.) %>%
+  rename(Oxygen=OxÃ.genoÂ.disueltoÂ..mg.LÂ.O2.) %>%
+  rename(SuspendedSolids=MateriasÂ.enÂ.suspensiÃ³nÂ..mg.L.) %>%
   full_join(fishes_spp, by = 'Year') %>%
   full_join(data_cat[c("Year","Chl.Total")], by='Year') %>% #here join chl data from CAT dataset
-  full_join(hist_flow[c("Year", "qmedmes")], by='Year')
+  full_join(hist_flow[c("Year", "qmedmes")], by='Year') #here join historical flow data
   
 #save the dataset
 #write.csv(data_full, "outputs/river_fisheries_data.csv")
 
 ## Generate lagged datasets
 # Prepare data
+
+# set the driver variable
+"qmedmes" #river flow
+"Chl.Total" #Chla
+"SRP" #phosphorous
+
 env <- data_full %>% group_by(Year) %>%
-  summarise(environment=mean(qmedmes, na.rm=TRUE)) %>%
+  summarise_at(c("Chl.Total", "SRP", "Total_phosphorous","flow","WaterT","Oxygen","SuspendedSolids"), mean, na.rm = TRUE) %>%
+  #summarise(flow=mean(SRP, na.rm=TRUE)) %>%
   filter(!is.na(environment)) %>% #remove NANs
   as.data.frame()
 
+# set the response variable
 catches <- data_full %>% group_by(Year) %>%
   summarise(biomass=mean(mean_biomass)) %>%
   filter(!is.na(biomass)) %>% #remove NANs
   as.data.frame() %>%
-  left_join(env, by="Year")
+  left_join(env, by="Year") %>%
+  filter(!is.na(Chl.Total))
+
+#plotting the data
+ggplot(data=gather(catches, variable, value, -Year), 
+       aes(x=Year, 
+           y=value, 
+           group=variable)) + 
+  geom_line() + 
+  facet_wrap("variable",scales = "free_y") +
+  xlab("Years") +
+  ylab("") +
+  ggtitle("") +
+  theme_bw()
 
 
+# create two vectors with year~response and year~driver
+env <- catches[,c(1,6)]
+catches <- catches[,c(1,2)]
+
+## Fix the non regular time series 
 env <- catches[,c(1,3)]
 env$Year <- seq(1, length(env$Year), by=1)
 catches <- catches[,c(1,2)]
@@ -117,7 +151,7 @@ catches$Year <- seq(1, length(catches$Year), by=1)
 
 
 ## Backward lags
-lags<-1:30
+lags<-1:10 #change length of lags depending on each driver
 
 #backward dataset 
 #to assess the effect of “past” environment (e.g. flow; data.to.lag) on fish catches (reference.data)
@@ -224,10 +258,38 @@ plot_composite <- plot_grid(backward.plot.coefficient,
 plot_composite
 
 # save plot
-#ggsave("outputs/agropastoralism_diatoms_asycnchronousModel.png",
-#       plot = plot_composite,
-#       width=8,
-#       height=6,
-#       units="in",
-#       dpi = 400)
+ggsave("outputs/riverflow_catches_asycnchronousModel.png",
+      plot = plot_composite,
+      width=8,
+      height=6,
+      units="in",
+      dpi = 400)
 
+### 
+# Run Lagged models with ecological memory (https://github.com/BlasBenito/memoria)
+###
+library(memoria)
+
+# Prepare time lagged data
+biomass.env.lagged <- prepareLaggedData(
+  input.data = catches,
+  response = "biomass",
+  drivers = c("Chl.Total", "SRP","flow"),
+  time = "Year",
+  oldest.sample = "last",
+  lags = seq(1, 5, by=1),
+  time.zoom=NULL,
+  scale=FALSE
+)
+
+#computing memory
+memory.output <- computeMemory(
+  lagged.data = biomass.env.lagged,
+  drivers = c("Chl.Total", "SRP","flow"),
+  response = "Response",
+  add.random = TRUE,
+  random.mode = "white.noise",
+  repetitions = 100,
+)
+
+plotMemory(memory.output)

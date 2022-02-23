@@ -22,7 +22,7 @@ df1 <- data.frame(apply(apply(data_che[,7:ncol(data_che)], 2, gsub, patt=",", re
 data_che <- cbind(data_che[,1:6], df1) 
 data_che_Tortosa <- data_che %>% filter(Sampling_Point==2) #filter cases Tortosa station
 
-#Calculate mean annual flow Data CHE (1980-2004)
+#Calculate mean annual flow Data CHE (1980-2004) to match with fish catches
 year_mean_flow_che <- data_che_Tortosa %>%
   mutate(Year_f=factor(Year)) %>%
   rename(flow=CaudalÂ.enÂ.superficieÂ..m3.s.) %>%
@@ -32,7 +32,8 @@ year_mean_flow_che <- data_che_Tortosa %>%
   mutate(mean_annual_flow=round(mean_annual_flow,2)) 
 
 ## CAT
-data_cat <- read.csv("data/data_cat_full.csv", sep=";")
+data_cat <- read.csv("data/data_cat_full.csv", sep=";") %>%
+  rename(Month=ï..Month)
 head(data_cat)
 str(data_cat)
 data_cat <- data_cat[-1,] #remove first row which contains variable units
@@ -42,7 +43,7 @@ df2 <- data.frame(apply(apply(data_cat[,3:ncol(data_cat)], 2, gsub, patt=",", re
 data_cat <- cbind(data_cat[,1:2], df2)
 plot.ts(data_cat$Chl.Total)
 
-#Calculate mean annual chla data
+#Calculate mean annual chla data to match with fish catches
 year_mean_chla <- data_cat %>%
   mutate(Year_f=factor(Year)) %>%
   group_by(Year_f) %>% 
@@ -64,8 +65,6 @@ hist_flow <- hist_flow %>% mutate(Year=as.numeric(Year)) %>%
 head(hist_flow)
 str(hist_flow)
 
-
-#Prepare fish catches data
 #Read in catches lagoons clean data
 catches_clean <- read.csv("data/catches_clean.csv")[-1]
 str(catches_clean)
@@ -91,18 +90,33 @@ data_full <- data_che_Tortosa %>% select(Day, Month, Year, CaudalÂ.enÂ.superfi
                                          TemperaturaÂ.delÂ.aguaÂ..ÂºC.,
                                          OxÃ.genoÂ.disueltoÂ..mg.LÂ.O2.,
                                          MateriasÂ.enÂ.suspensiÃ³nÂ..mg.L.) %>%
-  rename(flow=CaudalÂ.enÂ.superficieÂ..m3.s.) %>%
+  rename(flow_che=CaudalÂ.enÂ.superficieÂ..m3.s.) %>%
   rename(Total_phosphorous=FÃ³sforoÂ.TotalÂ..mg.LÂ.P.) %>%
   rename(SRP=FosfatosÂ..mg.LÂ.PO4.) %>%
   rename(WaterT=TemperaturaÂ.delÂ.aguaÂ..ÂºC.) %>%
   rename(Oxygen=OxÃ.genoÂ.disueltoÂ..mg.LÂ.O2.) %>%
   rename(SuspendedSolids=MateriasÂ.enÂ.suspensiÃ³nÂ..mg.L.) %>%
-  full_join(fishes_spp, by = 'Year') %>%
-  full_join(data_cat[c("Year","Chl.Total")], by='Year') %>% #here join chl data from CAT dataset
-  full_join(hist_flow[c("Year", "qmedmes")], by='Year') #here join historical flow data
+  full_join(fishes_spp, by = 'Year') %>% #here join with mean fishes catches across lagoons
+  left_join(data_cat[c("Year", "Month", "Chl.Total")], by=c("Year", "Month")) %>% #here join chl data from CAT dataset
+  full_join(hist_flow[c("Year", "Month", "qmedmes")], by=c('Year', 'Month')) #here historical flow from CHE dataset
+
   
+# plot the data
+#plotting the data
+ggplot(data=gather(data_full, variable, value, -Year, -Year2, -Day, -Month), 
+       aes(x=Year, 
+           y=value, 
+           group=variable)) + 
+  geom_line() + 
+  facet_wrap("variable",scales = "free_y", ncol = 2) +
+  xlab("Years") +
+  ylab("") +
+  ggtitle("") +
+  theme_bw()
+
+
 #save the dataset
-#write.csv(data_full, "outputs/river_fisheries_data.csv")
+write.csv(data_full, "outputs/river_fisheries_data.csv")
 
 ## Generate lagged datasets
 # Prepare data

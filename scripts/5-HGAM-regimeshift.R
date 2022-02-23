@@ -9,6 +9,7 @@ library(ggplot2)
 
 # Read in HGAM S & I fitted values
 fishes_plot_data <- read.csv("outputs/HGAM_fishes_data.csv", row.names=1)
+head(fishes_plot_data)
 
 ##Derivatives and posterior distribution simulation
 set.seed(10) #set a seed so this is repeatable

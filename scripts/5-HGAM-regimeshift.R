@@ -21,8 +21,8 @@ years <- seq(min(fishes_plot_data$Year2),
              max(fishes_plot_data$Year2),
              length.out = n_length)
 
-model <- model_gam_S
-#model <- model_gam_I
+#model <- model_gam_S
+model <- model_gam_I
 
 pred <- fishes_modI_fit
 #pred <- fishes_modI_fit
@@ -114,6 +114,5 @@ sd_plot <- deriv_summaries %>%
   theme_bw()
 sd_plot
 
-
 ## save derivative summaries for later use
-#write.csv(deriv_summaries, "outputs/.csv", row.names = FALSE)
+write.csv(deriv_summaries, "outputs/derivatives_HGAM_modI.csv", row.names = FALSE)

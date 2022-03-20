@@ -11,31 +11,30 @@ library(gratia) # to perform diagnostic plots of GAM objects
 library(car)
 
 #Read in catches lagoons clean data
-catches_clean <- read.csv("data/catches_clean.csv")[-1]
+catches_clean <- read.csv("data/catches_clean.csv")[-1] 
 str(catches_clean)
 
 #Species to be included in the models (>30% average biomass)
 include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
              "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus")
-
+exclude <- c("Platjola", "Clot - Baseta")
 
 ## This is to fit a GAM on temporal total biomass
 #Calculate average biomass per year and lagoon
 fishes_comm <- catches_clean %>%
   filter(!is.na(Kgs)) %>% #remove NANs
   filter(!str_detect(Species, "Ind")) %>% #drop Undetermined species
-  #filter(Species %in% include) %>% #select species to be modeled
+  filter(Species %in% include) %>% #select species to be modeled
+  filter(!Lagoon %in% exclude) %>%
   group_by(Year2) %>%
   summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
   mutate(mean_biomass_log = log(mean_biomass)) %>%
   mutate(year_f=factor(Year2)) %>%
+  mutate(Year=Year2) %>%
   as.data.frame()
   
-#plot(cpt.meanvar(fishes_comm$mean_biomass_log,method="BinSeg",pen.value=0.01))
-
 # Global model
 set.seed(10) #allow replication of results
-
 model_gam <- gam(mean_biomass ~ s(Year2, k=40),
                  data=fishes_comm, family = Gamma(link = "log"),  
                  method = "REML", select=TRUE)
@@ -89,8 +88,11 @@ fishes_comm_lagoon <- catches_clean %>%
   group_by(Year2, Lagoon) %>%
   summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
   mutate(mean_biomass_log = log(mean_biomass)) %>%
+  rename(lake=Lagoon) %>%
+  filter(!lake=="Platjola" & !lake=="Clot - Baseta") %>% 
   as.data.frame()
 
+levels(fishes_comm_lagoon$lake)
 
 # Create list of lagoon datasets
 LagoonData <- split(fishes_comm_lagoon, fishes_comm_lagoon$Lagoon)
@@ -105,7 +107,7 @@ fitGam <- function(i, data, kk, select=TRUE) {
 }
 
 lagoons <- c("Encanyissada", "Tancada", "Canal vell", "Goleta")
-k <- c(rep(40,4))
+k <- c(rep(30,4))
 fits <- lapply(seq_along(LagoonData[lagoons]), fitGam, data = LagoonData[lagoons], kk = k)
 names(fits) <- names(LagoonData[lagoons])
 
@@ -139,8 +141,7 @@ write.table(summary_Gam_tables, file = "outputs/summary_gam_lagoons_table.txt",
 
 
 #Load function to calculate first derivative on fish community biomass
-source("scripts/Deriv.R")
-
+source("scripts/functions/Deriv.R")
 
 ## Apply derivative function to global model (list)
 derivs <- lapply(fits, Deriv, n = 200)
@@ -224,42 +225,24 @@ lapply(seq_along(fits), plotTrends, trends = predTrends,
 
 #--------------#
 
-
 #extract dataframes from lists
 df1 <- plyr::ldply(predData, data.frame) 
 df2 <- plyr::ldply(predTrends, data.frame)[,-1] #this is to remove first column .id to avouid duplicates
 df3 <- plyr::ldply(signifCores, data.frame) [,-1] 
 
 gamderivAll <- cbind(df1, df2, df3) 
+
 colnames(gamderivAll) <- c("lake", "Year", "fit", "se.fit", "incr", "decr") 
 
 #Calculate standard error
 gamderivAll <- mutate(gamderivAll, upper = fit + (2 * se.fit),
                       lower = fit - (2 * se.fit))
 
-deriv_gam_plot <- ggplot(gamderivAll) + 
-  geom_line(aes(x = Year, y = fit)) +
-  geom_line(aes(x = Year, y = incr), color="blue", size=1.5) +
-  geom_line(aes(x = Year, y = decr), color="red", size=1.5) +
-  geom_ribbon(aes(x=Year, 
-                  ymin = lower,
-                  ymax = upper), alpha=0.1)+  
-  geom_point(data=fishes_comm, aes(x = Year2, y = mean_biomass_log), size=1,color="black") +
-  labs(y = "Log(Total biomass (Kgs))", x = "Years") +
-  ggtitle("Ebro Delta Coastal Lagoons Fish catches trend")
-deriv_gam_plot
-
-ggsave("outputs/gam_derivative_globalmodel_catches.png",
-       plot = deriv_gam_plot,
-       width=8,
-       height=6,
-       units="in",
-       dpi = 400)
-
 # this is to manually sort lakes
-gamderivAll$Lake_f = factor(gamderivAll$lake, levels=c("Encanyissada", "Tancada", "Canal vell", "Goleta"))
+gamderivAll$lake = factor(gamderivAll$lake, levels=c("Encanyissada", "Tancada", "Canal vell", "Goleta"))
 
-deriv_plot <- ggplot(gamderivAll) +
+# Plot
+deriv_gam_plot <- ggplot(gamderivAll) + 
   facet_grid(lake~., scales = "free_y") +
   geom_line(aes(x = Year, y = fit)) +
   geom_line(aes(x = Year, y = incr), color="blue", size=1.5) +
@@ -268,8 +251,18 @@ deriv_plot <- ggplot(gamderivAll) +
                   ymin = lower,
                   ymax = upper), alpha=0.1)+  
   geom_point(data=fishes_comm_lagoon, aes(x = Year2, y = mean_biomass_log), size=1,color="black") +
-  labs(y = "Total biomass (Kgs)", x = "Years") 
-deriv_plot
+  labs(y = "Log(Total biomass (Kgs))", x = "Years") +
+  ggtitle("Ebro Delta Coastal Lagoons Fish catches trend") +
+  theme_bw()
+deriv_gam_plot
+
+# save plot
+ggsave("outputs/gam_derivative_globalmodel_catches.png",
+       plot = deriv_gam_plot,
+       width=8,
+       height=6,
+       units="in",
+       dpi = 400)
 
 
 

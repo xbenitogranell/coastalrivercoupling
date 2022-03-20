@@ -7,8 +7,14 @@ library(strucchange)
 library(changepoint)
 
 library(tidyverse)
-# remotes::install_github("lindeloev/mcp")
-#library(mcp)
+#remotes::install_github("lindeloev/mcp")
+library(mcp)
+
+# read in full data including river physico-chemical (from CHE, CAT), historical river flow (CHE),  fish catches (year, lagoon) and climatic data
+data_full <- read.csv("outputs/river_fisheries_lagoon_spp_data.csv",row.names=1)
+head(data_full)
+str(data_full)
+
 
 ## Read in environmental data
 # CHE
@@ -73,9 +79,9 @@ str(hist_flow)
 plot.ts(hist_flow$qmedmes)
 
 #Calculate mean annual flow Data CHE CEDEX (1912-2018)
-range(hist_flow$year) #1912-2018
+range(hist_flow$Year) #1912-2018
 year_mean_flow <- hist_flow %>%
-  mutate(Year_f=factor(year)) %>%
+  mutate(Year_f=factor(Year)) %>%
   rename(flow=qmedmes) %>%
   group_by(Year_f) %>% 
   summarise(mean_annual_flow=mean(flow, na.rm = T)) %>%
@@ -87,3 +93,12 @@ plot(cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01
 cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01)
 
 year_mean_flow[52,]
+
+## A plethora of change point analysis: https://lindeloev.github.io/mcp/articles/packages.html
+
+library(EnvCpt)
+fit_envcpt <- envcpt(year_mean_flow$mean_annual_flow)  # Fit all models at once
+fit_envcpt$summary  # Show log-likelihoods
+plot(fit_envcpt)
+
+fit_envcpt$meancpt@cpts

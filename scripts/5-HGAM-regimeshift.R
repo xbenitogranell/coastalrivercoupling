@@ -116,3 +116,23 @@ sd_plot
 
 ## save derivative summaries for later use
 write.csv(deriv_summaries, "outputs/derivatives_HGAM_modI.csv", row.names = FALSE)
+
+## Community synchrony analyses (from Pedersen et al 2017)
+source("scripts/functions/community_synchrony.R")
+
+str(fishes_spp)
+
+# Prepare data 
+biomass_comm <- fishes_spp %>% select(Species, Year2, mean_biomass_log) %>%
+  spread(key = Species, value = mean_biomass_log)%>%
+  as.matrix()
+  
+row.names(biomass_comm) <- biomass_comm[,1]
+biomass_comm <- biomass_comm[,-1]
+biomass_comm[is.na(biomass_comm)] <- 0
+
+twindow <- 5
+sync_allsp <- community.sync.window(biomass_comm, twin=twindow)
+
+plot.ts(sync_allsp$sync)
+plot(sync_allsp$mid, sync_allsp$sync, type = "l")

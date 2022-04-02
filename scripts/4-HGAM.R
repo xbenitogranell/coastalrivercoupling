@@ -17,7 +17,7 @@ str(catches_clean)
 
 #Species to be included in the models (>30% average biomass)
 include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
-             "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus", "Mugil cephalus")
+             "Liza ramada", "Sprattus sprattus")
 
 
 #Calculate average biomass per year and lagoon

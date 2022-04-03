@@ -79,10 +79,11 @@ data_spp_env <- data_full %>%
   dplyr::select(Year, flow_che, SRP, Lagoon, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
          qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature) %>%
   group_by(Year, Lagoon) %>%
-  summarise(across(everything(), mean, na.rm=TRUE)) 
+  summarise(across(everything(), mean, na.rm=TRUE)) %>%
+  as.data.frame()
   
 # plot the data to check everything looks correct
-ggplot(data=gather(data_spp, variable, value, -Year, -Lagoon),
+ggplot(data=gather(data_spp_env, variable, value, -Year, -Lagoon),
        aes(x=Year,
            y=value,
            group=variable)) +
@@ -94,35 +95,40 @@ ggplot(data=gather(data_spp, variable, value, -Year, -Lagoon),
   ggtitle("") +
   theme_bw()
 
+# create a lagged variable for river flow
+data_spp_env$y.1 <- c(NA,data_spp_env$flow_che[1:(nrow(data_spp_env)-1)])
+
+
 # This chunk run a GAM model      
 str(data_spp_env)     
 
-mod1 <- gam(mean_biomass ~ s(Year, k=20) + s(flow_che, k=15, bs="ad") + s(Lagoon, bs="re"),
+mod1 <- gam(mean_biomass_log ~ s(Year, k=10) + s(Chl.Total) + flow_breakpoinnt +
+              s(Lagoon, bs="re"),
             data = data_spp_env, method = "REML", 
-            select = TRUE, family = gaussian(link="log"),
+            select = TRUE, family = gaussian(link = "identity"),
             na.action = na.omit) 
 
-pacf(residuals(mod1)) # indicates non AR1
+pacf(residuals(mod1)) # indicates AR2
 plot(mod1, page=1, scale=0)
 gam.check(mod1)
-appraise(mod1)
-draw(mod1)
+appraise(mod1) #check model residuals
+draw(mod1) # plot partial responses using gratia() 
 summary(mod1)
 
-#accounting for temporal autocorrelation
-mod1.car <- gam(mean_biomass ~ s(Year, k=20) + s(flow_che, k=15, bs="ad") + s(Lagoon, bs="re"),
+#accounting for temporal autocorrelation--does not work
+mod1.car <- gamm(mean_biomass_log ~ s(Year, k=20) + s(flow_che, k=15, bs="ad") + s(Lagoon, bs="re"),
             data = data_spp_env, method = "REML", 
-            select = TRUE, family = gaussian(link="log"),
+            select = TRUE, family = gaussian(link="identity"),
             na.action = na.omit,
             correlation = corCAR1(form = ~ Year)) 
 
-pacf(residuals(mod1.car$lme)) # indicates AR1
-plot(mod1.car$gam, page=1, scale = 0)
+pacf(residuals(mod1.car)) # indicates AR1
+plot(mod1.car, page=1, scale = 0)
 summary(mod1.car$gam)
 draw(mod1.car)
 
 #Compare different model fits using AIC
-AIC_table <- AIC(mod1, mod1.car$lme)%>%
+AIC_table <- AIC(mod1, mod1.car)%>%
   rownames_to_column(var= "Model")%>%
   mutate(data_source = rep(c("diatom_data")))%>%
   group_by(data_source)%>%
@@ -146,15 +152,15 @@ predGam <- cbind(data_spp_env,
                  data.frame(predict.gam(mod1, data_spp_env, 
                                         type = "terms" , se.fit = TRUE)))
 #plot
-var <- predGam$
-se.var <- predGam$
+var <- predGam$fit.s.Chl.Total.
+se.var <- predGam$se.fit.s.Chl.Total.
 
-predGamPlt <- ggplot(predGam, aes(x = Age, y = var)) +
+predGamPlt <- ggplot(predGam, aes(x = Year, y = var)) +
   geom_line() +
   geom_ribbon(aes(ymin = var + (2 * se.var), ymax = var - (2 * se.var)),alpha=0.4) +
   geom_point()+
   #scale_x_reverse() +
-  labs(y = "Agropastoralism", x = "cal years BP", title = "")+
+  labs(y = "", x = "cal years BP", title = "")+
   theme(legend.position = "none")+
   geom_hline(yintercept=0, linetype="dashed")+
   theme_bw()+ theme(legend.position = "none")+
@@ -165,3 +171,4 @@ predGamPlt <- ggplot(predGam, aes(x = Age, y = var)) +
         axis.title.x = element_blank(),
         axis.text.x = element_text(size=12),
         axis.title.y=element_text(size=14))
+predGamPlt

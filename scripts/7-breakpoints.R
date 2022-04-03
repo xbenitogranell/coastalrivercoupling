@@ -66,19 +66,23 @@ year_mean_chla <- data_cat %>%
   filter(!is.na(Chl.Total)) #remove NANs
 
 # calculates the optimal positioning and number of significant changepoints
-plot(cpt.meanvar(year_mean_chla$mean_annual_chla, method="BinSeg",pen.value=0.01))
-cpt.meanvar(year_mean_chla$mean_annual_chla, method="BinSeg",pen.value=0.01)
+plot(cpt.meanvar(year_mean_chla$Chl.Total, method="BinSeg",pen.value=0.01))
+cpt.meanvar(year_mean_chla$Chl.Total, method="BinSeg",pen.value=0.01)
+
+# where is the breakpoint?
 year_mean_chla[c(6,12),] #1995 and 2001 are breakpoints for chla
-# create dummy variable for Chla; see the input dataframe 
+# create dummy variable for Chla; see the input dataframe: either form 4-HGAM.R or 8-GAM-trends.R
 chla_breakpoinnt <- ifelse(data_spp_env$Year==1995 | data_spp_env$Year==2001, 1, 0)
+chla_breakpoinnt <- ifelse(fishes_spp$Year2==1995 | fishes_spp$Year2==2001, 1, 0)
 
 plot(cpt.meanvar(year_mean_chla$TOC, method="BinSeg",pen.value=0.01))
 cpt.meanvar(year_mean_chla$TOC, method="BinSeg",pen.value=0.01)
-year_mean_chla[c(8,11),] #1996 and 1999 are breakpoints for TOC
-# create dummy variable for TOC; see the input dataframe 
-TOC_breakpoinnt <- ifelse(data_spp_env$TOC==1996 | data_spp_env$Year==1999, 1, 0)
 
-# Merge breakpoint vectors
+# where is the breakpoint?
+year_mean_chla[c(8,11),] #1996 and 1999 are breakpoints for TOC
+# create dummy variable for TOC; see the input dataframe: either form 4-HGAM.R or 8-GAM-trends.R
+TOC_breakpoinnt <- ifelse(data_spp_env$Year==1996 | data_spp_env$Year==1999, 1, 0)
+TOC_breakpoinnt <- ifelse(fishes_spp$Year2==1996 | fishes_spp$Year2==1999, 1, 0)
 
 
 # CEDEX historical flows (Datos mensuales de estaciones de aforo en río)
@@ -110,12 +114,19 @@ plot.ts(year_mean_flow$mean_annual_flow)
 # calculates the optimal positioning and number of significant changepoints
 plot(cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01))
 cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01)
-
+# where is the breakpoint?
 year_mean_flow[52,] #1979
+# create dummy variable for TOC; see the input dataframe: either form 4-HGAM.R or 8-GAM-trends.R
 flow_breakpoinnt <- ifelse(data_spp_env$Year==1979, 1, 0)
+flow_breakpoinnt <- ifelse(fishes_spp$Year==1979, 1, 0)
 
+# Merge breakpoint vectors here and with data spp_env
+breakpoints_data <- data.frame(chla_breakpoinnt, flow_breakpoinnt, TOC_breakpoinnt)
 
-## A plethora of change point analysis: https://lindeloev.github.io/mcp/articles/packages.html
+data_spp_env <- cbind(data_spp_env, breakpoints_data)
+  
+  
+# A plethora of change point analysis: https://lindeloev.github.io/mcp/articles/packages.html
 
 library(EnvCpt)
 fit_envcpt <- envcpt(year_mean_flow$mean_annual_flow)  # Fit all models at once

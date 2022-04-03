@@ -34,7 +34,7 @@ fishes_spp <- catches_clean %>%
 levels(fishes_spp$spp) #check number of species (levels)
 
 
-#model S HGAM: similar wiggliness between groups (spp) without a global smooth 
+#model S HGAM: same wiggliness between groups (spp) without a global smoother: evidence of high coherence
 set.seed(10) #set a seed so this is repeatable
 
 model_gam_S <- gam(mean_biomass ~ s(Year2, spp, k=20, bs="fs"),
@@ -46,7 +46,7 @@ appraise(model_gam_S)
 draw(model_gam_S)
 summary(model_gam_S)
 
-#model I HGAM: different wiggliness for each taxa without a global smooth
+#model I HGAM: different wiggliness for each taxa without a global smoother: evidence of low coherence
 model_gam_I<- gam(mean_biomass ~ s(Year2, by=spp, k=20, bs="fs") +
                     s(spp, bs="re"),
                   data=fishes_spp, family = Gamma(link = "log"),
@@ -144,12 +144,13 @@ taxa <- "Anguilla anguilla"
 
 taxa_data <- catches_clean %>%
   filter(!is.na(Kgs)) %>% #remove NANs
-  group_by(Year2, Species, Lagoon) %>%
+  #group_by(Year2, Species, Lagoon) %>%
+  group_by(Year2, Lagoon) %>%
   summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
   mutate(mean_biomass_log = log(mean_biomass)) %>%
   mutate(year_f=factor(Year2)) %>%
-  mutate(spp=factor(Species)) %>%
-  filter(Species==taxa) %>%
+  #mutate(spp=factor(Species)) %>%
+  #filter(Species==taxa) %>%
   mutate(lagoon_f=factor(Lagoon)) %>%
   filter(!lagoon_f %in% c("Clot - Baseta", "Platjola")) %>% #few occurrences
   as.data.frame()
@@ -158,27 +159,29 @@ taxa_data$lagoon_f <- droplevels(taxa_data$lagoon_f)
 str(taxa_data)
 
 # Model G HGAM: global smoother
-taxa_modG <- gam(mean_biomass ~ s(lagoon_f, Year2, bs="re") + s(lagoon_f, bs="re"),
+taxa_modG <- gam(mean_biomass ~ s(Year2, k=10) + s(lagoon_f, bs="re") +
+                   s(lagoon_f, Year2, bs="re"),
                  data=taxa_data,
                  family=Gamma(link = "log"),
                  method="REML", select=TRUE,
                  drop.unused.levels = FALSE)
 
-
 # Model GS: A global smoother plus group-level smoothers that have the same wiggliness
 taxa_modGS <- gam(mean_biomass ~ s(Year2, lagoon_f, bs="fs") +
+                    s(Year2, lagoon_f, bs="re") + 
                     s(Year2, k=10), data=taxa_data, 
                   family=Gamma(link = "log"), method="REML",select=TRUE,
                   drop.unused.levels = FALSE)
 
-
 # Model GI: A global smoother plus group-level smoothers with differing wiggliness
-taxa_modGI <- gam(mean_biomass ~ s(Year2, by=lagoon_f, k=10)+
-                    s(lagoon_f, bs="re") + 
+taxa_modGI <- gam(mean_biomass ~ s(Year2, k=10) + s(lagoon_f, bs="re") +
+                    s(Year2, by=lagoon_f, k=10) +
                     s(lagoon_f, Year2,bs="re"),
                   data=taxa_data,
                   family=Gamma(link = "log"),
                   method="REML",select=TRUE, drop.unused.levels = FALSE)
+
+
 
 #qqplot, using gratia's qq_plot function, with simulated confidence intervals
 pltG <- qq_plot(taxa_modG, method = "simulate")+
@@ -275,7 +278,7 @@ taxa_plot <- ggplot(taxa_plot_data, aes(x=Year2))+
 taxa_plot
 
 # Save plot
-ggsave("outputs/taxa_HGAM.png",
+ggsave("outputs/lagoon_HGAM.png",
        plot = taxa_plot,
        width =10,
        height=8,

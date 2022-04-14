@@ -1,5 +1,8 @@
 ## Model river FQ and flow trends: data-driven GAM approach
 
+#Clear workspace
+rm(list=ls(all=TRUE))
+
 library(mgcv)
 library(tidyverse)
 library(ggplot2)
@@ -75,10 +78,10 @@ taxa <- "Anguilla"
 data_spp_env <- data_full %>% 
   filter(!Lagoon=="Platjola" & !Lagoon=="Clot - Baseta") %>% #filter out 
   droplevels() %>%
-  filter(str_detect (Species, taxa)) %>% #select species to be modeled
-  dplyr::select(Year, flow_che, SRP, Lagoon, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
+  #filter(str_detect (Species, taxa)) %>% #select species to be modeled
+  dplyr::select(Year, flow_che, SRP_che, Lagoon, Species, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
          qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature) %>%
-  group_by(Year, Lagoon) %>%
+  group_by(Year, Lagoon, Species) %>%
   summarise(across(everything(), mean, na.rm=TRUE)) %>%
   as.data.frame()
   

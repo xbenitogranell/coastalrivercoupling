@@ -4,7 +4,7 @@
 rm(list=ls(all=TRUE))
 
 #load lag functions
-source("scripts/functions/functions_lags.R")
+source("scripts/functions/functions_lags.R") #from Blas Benito
 
 #Load functions used
 library(tidyverse)
@@ -12,144 +12,19 @@ library(ggplot2)
 library(cowplot)
 library(nlme)
 
-# Read in CHE data
-data_che <- read.csv("data/data_che_full.csv", sep=";")
-head(data_che)
-str(data_che)
+# Read in data full
+data_full <- read.csv("outputs/river_fisheries_lagoon_spp_data.csv")
+str(data_full)
 
-# transform to numeric
-df1 <- data.frame(apply(apply(data_che[,7:ncol(data_che)], 2, gsub, patt=",", replace="."), 2, as.numeric))
-data_che <- cbind(data_che[,1:6], df1) 
-data_che_Tortosa <- data_che %>% filter(Sampling_Point==2) #filter cases Tortosa station
-
-#Calculate mean annual flow Data CHE (1980-2004) to match with fish catches
-year_mean_flow_che <- data_che_Tortosa %>%
-  mutate(Year_f=factor(Year)) %>%
-  rename(flow=Caudal.en.superficie..m3.s.) %>%
-  #filter(!is.na(CaudalÂ.enÂ.superficieÂ..m3.s)) %>% #remove NANs
-  group_by(Year_f) %>% 
-  summarise(mean_annual_flow=mean(flow, na.rm = T)) %>%
-  mutate(mean_annual_flow=round(mean_annual_flow,2)) 
-
-## CAT
-data_cat <- read.csv("data/data_cat_full.csv", sep=";") %>%
-  rename(Month=ï..Month)
-head(data_cat)
-str(data_cat)
-data_cat <- data_cat[-1,] #remove first row which contains variable units
-
-# transform to numeric
-df2 <- data.frame(apply(apply(data_cat[,3:ncol(data_cat)], 2, gsub, patt=",", replace="."), 2, as.numeric))
-data_cat <- cbind(data_cat[,1:2], df2)
-plot.ts(data_cat$Chl.Total)
-
-#Calculate mean annual chla data to match with fish catches
-year_mean_chla <- data_cat %>%
-  mutate(Year_f=factor(Year)) %>%
-  group_by(Year_f) %>% 
-  summarise(mean_annual_chla=mean(Chl.Total, na.rm = T)) %>%
-  mutate(mean_annual_chla=round(mean_annual_chla,2)) %>%
-  filter(!is.na(mean_annual_chla)) #remove NANs
-
-## CEDEX historical flows (Datos mensuales de estaciones de aforo en río)
-hist_flow <- read.csv("data/mensual_a_EBRO.csv", sep=";") %>%
-  filter(indroea==9027) #filter cases Tortosa station
-
-# this is to create year and month columns
-test <- data.frame(str_split_fixed(hist_flow$anomes, "", n = 6))
-hist_flow$Year <- str_c(test$X1,'',test$X2,'',test$X3,'',test$X4)
-hist_flow$Month <- str_c(test$X5,'',test$X6)
-hist_flow <- hist_flow %>% mutate(Year=as.numeric(Year)) %>%
-  mutate(Month=as.numeric(Month))
-
-head(hist_flow)
-str(hist_flow)
-
-#Read in catches lagoons clean data
-catches_clean <- read.csv("data/catches_clean.csv")[-1]
-str(catches_clean)
-
-
-# Read in climatic data (Tortosa station)
-climatic_data <- read.csv("data/data_climatic_tortosa.csv")[-1] %>% #remove first column (date)
-  rename(Day=DAY) %>%
-  rename(Month=MONTH) %>%
-  rename(Year=YEAR) %>%
-  rename(Wind_direction=Wind.direction..Degrees.) %>%
-  rename(Wind_speed=Wind.speed..m.s.) %>%
-  rename(Sea_level_pressure=Sea.level.pressure..hPa.) %>%
-  rename(Precipitation=Precipitation.amount..mm.) %>%
-  rename(Mean_temperature=Mean.temperature..ºC.)%>%
-  rename(Min_temperature=Minimum.temperature..ºC.) %>%
-  rename(Max_temperature=Maximum.temperature..ºC.) %>%
-  dplyr::select(-c(4,7,8,11))
-
-str(climatic_data)  
-  
-
-#Species to be included in the models (>30% average biomass)
-include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
-             "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus")
-
-#Calculate average biomass per year of the most common fishes catched
-fishes_spp <- catches_clean %>%
-  filter(!is.na(Kgs)) %>% #remove NANs
-  filter(Species %in% include) %>% #select species to be modeled
-  group_by(Year2, Species, Lagoon) %>% #group by species, lagoon and year
-  #group_by(Year2) %>% #group by species, lagoon and year
-  summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
-  mutate(mean_biomass_log = log(mean_biomass)) %>%
-  mutate(Year=Year2) %>%
-  as.data.frame()
-
-
-# subset river flow from CHE AND other physico-chemical variables, and JOIN with fish catches
-data_full <- data_che_Tortosa %>% dplyr::select(Day, Month, Year, Caudal.en.superficie..m3.s.,
-                                         Fósforo.Total..mg.L.P.,Fosfatos..mg.L.PO4.,
-                                         Temperatura.del.agua..ºC.,
-                                         Oxígeno.disuelto..mg.L.O2.,
-                                         Materias.en.suspensión..mg.L.) %>%
-  rename(flow_che=Caudal.en.superficie..m3.s.) %>%
-  rename(Total_phosphorous=Fósforo.Total..mg.L.P.) %>%
-  rename(SRP=Fosfatos..mg.L.PO4.) %>%
-  rename(WaterT=Temperatura.del.agua..ºC.) %>%
-  rename(Oxygen=Oxígeno.disuelto..mg.L.O2.) %>%
-  rename(SuspendedSolids=Materias.en.suspensión..mg.L.) %>%
-  full_join(fishes_spp, by = 'Year') %>% #here join with mean fishes catches across lagoons
-  left_join(data_cat[c("Year", "Month", "Chl.Total", "TOC", "NO3", "NO2", "NH4")], by=c("Year", "Month")) %>% #here join chl data from CAT dataset
-  full_join(hist_flow[c("Year", "Month", "qmedmes")], by=c('Year', 'Month')) %>% #here historical flow from CHE dataset
-  full_join(climatic_data[c("Year", 'Month', 'Wind_direction', 'Wind_speed', 'Sea_level_pressure', 'Precipitation', 'Mean_temperature', 'Min_temperature', 'Max_temperature')], by=c('Year', 'Month')) #here climatic data (Tortosa station)
-
-head(data_full)
-  
-# plot the data
-#plotting the data
-ggplot(data=gather(data_full, variable, value, -Year, -Year2, -Day, -Month), 
-       aes(x=Year, 
-           y=value, 
-           group=variable)) + 
-  geom_line() + 
-  facet_wrap("variable",scales = "free_y", ncol = 2) +
-  xlab("Years") +
-  ylab("") +
-  ggtitle("") +
-  theme_bw()
-
-
-#save the dataset
-write.csv(data_full, "outputs/river_fisheries_data.csv")
-write.csv(data_full, "outputs/river_fisheries_lagoon_spp_data.csv")
-
-## Generate lagged datasets
+### Generate lagged datasets
 # Prepare data
-
 # set the driver variable
 "qmedmes" #river flow
 "Chl.Total" #Chla
 "SRP" #phosphorous
 
 env <- data_full %>% group_by(Year) %>%
-  summarise_at(c("Chl.Total", "SRP", "Total_phosphorous","flow_che", "qmedmes", "WaterT","Oxygen","SuspendedSolids", "TOC",
+  summarise_at(c("Chl.Total", "SRP_che", "total_phosphorous_che","flow_che", "qmedmes", "WaterT_che","SuspendedSolids_che", "TOC",
                  "NO3", "NO2", "NH4", "Wind_speed", "Mean_temperature", "Precipitation"), mean, na.rm = TRUE) %>%
   filter(!is.na(environment)) %>% #remove NANs
   as.data.frame()

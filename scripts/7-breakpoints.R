@@ -19,6 +19,17 @@ data_full <- read.csv("outputs/river_fisheries_lagoon_spp_data.csv",row.names=1)
 head(data_full)
 str(data_full)
 
+# This is for average variables across Year while holding lagoon
+data_spp_env <- data_full %>% 
+  filter(!Lagoon=="Platjola" & !Lagoon=="Clot - Baseta") %>% #filter out 
+  droplevels() %>%
+  group_by(Year, Lagoon) %>%
+  dplyr::select(Year, Lagoon, flow_che, SRP_che, Lagoon, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
+                qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature) %>%
+  summarise(across(everything(), mean, na.rm=TRUE)) %>%
+  as.data.frame()
+
+
 
 ## Read in environmental data
 # CHE
@@ -46,6 +57,10 @@ plot(cpt.meanvar(year_mean_che$flow, method="BinSeg",pen.value=0.01))
 plot(cpt.meanvar(year_mean_che$Fósforo.Total..mg.L.P., method="BinSeg",pen.value=0.01))
 plot(cpt.meanvar(year_mean_che$Fosfatos..mg.L.PO4., method="BinSeg",pen.value=0.01))
 
+cpt.meanvar(year_mean_che$Fosfatos..mg.L.PO4., method="BinSeg",pen.value=0.01)
+# where is the breakpoint?
+year_mean_che[c(15),] #1995 is breakpoints for PO4
+PO4_breakpoinnt <- ifelse(data_spp_env$Year==1995, 1, 0)
 
 # CAT dataset
 data_cat <- read.csv("data/data_cat_full.csv", sep=";")
@@ -73,16 +88,14 @@ cpt.meanvar(year_mean_chla$Chl.Total, method="BinSeg",pen.value=0.01)
 year_mean_chla[c(6,12),] #1995 and 2001 are breakpoints for chla
 # create dummy variable for Chla; see the input dataframe: either form 4-HGAM.R or 8-GAM-trends.R
 chla_breakpoinnt <- ifelse(data_spp_env$Year==1995 | data_spp_env$Year==2001, 1, 0)
-chla_breakpoinnt <- ifelse(fishes_spp$Year2==1995 | fishes_spp$Year2==2001, 1, 0)
 
 plot(cpt.meanvar(year_mean_chla$TOC, method="BinSeg",pen.value=0.01))
 cpt.meanvar(year_mean_chla$TOC, method="BinSeg",pen.value=0.01)
 
 # where is the breakpoint?
-year_mean_chla[c(8,11),] #1996 and 1999 are breakpoints for TOC
+year_mean_chla[c(7,10),] #1996 and 1999 are breakpoints for TOC
 # create dummy variable for TOC; see the input dataframe: either form 4-HGAM.R or 8-GAM-trends.R
 TOC_breakpoinnt <- ifelse(data_spp_env$Year==1996 | data_spp_env$Year==1999, 1, 0)
-TOC_breakpoinnt <- ifelse(fishes_spp$Year2==1996 | fishes_spp$Year2==1999, 1, 0)
 
 
 # CEDEX historical flows (Datos mensuales de estaciones de aforo en río)
@@ -118,10 +131,13 @@ cpt.meanvar(year_mean_flow$mean_annual_flow, method="BinSeg",pen.value=0.01)
 year_mean_flow[52,] #1979
 # create dummy variable for TOC; see the input dataframe: either form 4-HGAM.R or 8-GAM-trends.R
 flow_breakpoinnt <- ifelse(data_spp_env$Year==1979, 1, 0)
-flow_breakpoinnt <- ifelse(fishes_spp$Year==1979, 1, 0)
 
 # Merge breakpoint vectors here and with data spp_env
-breakpoints_data <- data.frame(chla_breakpoinnt, flow_breakpoinnt, TOC_breakpoinnt)
+breakpoints_data <- data.frame(data_spp_env$Year, chla_breakpoinnt, flow_breakpoinnt, TOC_breakpoinnt, PO4_breakpoinnt)
+colnames(breakpoints_data)[1] <- "Year"
+
+# save dataset
+write.csv(breakpoints_data, "outputs/breakpoints_river.csv")
 
 data_spp_env <- cbind(data_spp_env, breakpoints_data)
   

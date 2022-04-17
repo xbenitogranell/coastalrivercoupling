@@ -65,8 +65,8 @@ draw(m3, residuals=TRUE)
 data_full <- read.csv("outputs/river_fisheries_lagoon_spp_data.csv",row.names=1)
 head(data_full)
 
-# Create lagged variables
-# bellver$y.1 <- c(NA,bellver$y[1:(nrow(bellver)-1)]) #y is the variable to be lagged
+# read in breakpoints river environment
+breakpoints_river <- read.csv("outputs/breakpoints_river.csv", row.names = 1)
 
 # check how many levels per species and lagoobn
 levels(data_full$Species)
@@ -78,13 +78,14 @@ taxa <- "Anguilla"
 data_spp_env <- data_full %>% 
   filter(!Lagoon=="Platjola" & !Lagoon=="Clot - Baseta") %>% #filter out 
   droplevels() %>%
-  #filter(str_detect (Species, taxa)) %>% #select species to be modeled
-  dplyr::select(Year, flow_che, SRP_che, Lagoon, Species, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
-         qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature) %>%
-  group_by(Year, Lagoon, Species) %>%
+  group_by(Year, Lagoon) %>%
+  dplyr::select(Year, flow_che, SRP_che, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
+                qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature, QMax, QMean) %>%
   summarise(across(everything(), mean, na.rm=TRUE)) %>%
+  mutate(qmedmes_lag1=lag(qmedmes)) %>% #create a lagged variable for historical flow
+  left_join(breakpoints_river, by="Year") %>% #join with river environmental dataset of breakpoints
   as.data.frame()
-  
+
 # plot the data to check everything looks correct
 ggplot(data=gather(data_spp_env, variable, value, -Year, -Lagoon),
        aes(x=Year,
@@ -98,17 +99,13 @@ ggplot(data=gather(data_spp_env, variable, value, -Year, -Lagoon),
   ggtitle("") +
   theme_bw()
 
-# create a lagged variable for river flow
-data_spp_env$y.1 <- c(NA,data_spp_env$flow_che[1:(nrow(data_spp_env)-1)])
-
-
 # This chunk run a GAM model      
 str(data_spp_env)     
 
-mod1 <- gam(mean_biomass_log ~ s(Year, k=10) + s(Chl.Total) + flow_breakpoinnt +
-              s(Lagoon, bs="re"),
+mod1 <- gam(mean_biomass ~ s(Year, k=10) + s(Chl.Total) + 
+              s(qmedmes_lag1) + s(Lagoon, bs="re"),
             data = data_spp_env, method = "REML", 
-            select = TRUE, family = gaussian(link = "identity"),
+            select = TRUE, family = Gamma(link="log"),
             na.action = na.omit) 
 
 pacf(residuals(mod1)) # indicates AR2
@@ -118,30 +115,30 @@ appraise(mod1) #check model residuals
 draw(mod1) # plot partial responses using gratia() 
 summary(mod1)
 
-#accounting for temporal autocorrelation--does not work
-mod1.car <- gamm(mean_biomass_log ~ s(Year, k=20) + s(flow_che, k=15, bs="ad") + s(Lagoon, bs="re"),
-            data = data_spp_env, method = "REML", 
-            select = TRUE, family = gaussian(link="identity"),
-            na.action = na.omit,
-            correlation = corCAR1(form = ~ Year)) 
-
-pacf(residuals(mod1.car)) # indicates AR1
-plot(mod1.car, page=1, scale = 0)
-summary(mod1.car$gam)
-draw(mod1.car)
-
-#Compare different model fits using AIC
-AIC_table <- AIC(mod1, mod1.car)%>%
-  rownames_to_column(var= "Model")%>%
-  mutate(data_source = rep(c("diatom_data")))%>%
-  group_by(data_source)%>%
-  mutate(deltaAIC = AIC - min(AIC))%>%
-  ungroup()%>%
-  dplyr::select(-data_source)%>%
-  mutate_at(.vars = vars(df,AIC, deltaAIC), 
-            .funs = funs(round,.args = list(digits=0)))
-
-AIC_table
+# #accounting for temporal autocorrelation--does not work
+# mod1.car <- gamm(mean_biomass_log ~ s(Year, k=20) + s(flow_che, k=15, bs="ad") + s(Lagoon, bs="re"),
+#             data = data_spp_env, method = "REML", 
+#             select = TRUE, family = gaussian(link="identity"),
+#             na.action = na.omit,
+#             correlation = corCAR1(form = ~ Year)) 
+# 
+# pacf(residuals(mod1.car)) # indicates AR1
+# plot(mod1.car, page=1, scale = 0)
+# summary(mod1.car$gam)
+# draw(mod1.car)
+# 
+# #Compare different model fits using AIC
+# AIC_table <- AIC(mod1, mod1.car)%>%
+#   rownames_to_column(var= "Model")%>%
+#   mutate(data_source = rep(c("diatom_data")))%>%
+#   group_by(data_source)%>%
+#   mutate(deltaAIC = AIC - min(AIC))%>%
+#   ungroup()%>%
+#   dplyr::select(-data_source)%>%
+#   mutate_at(.vars = vars(df,AIC, deltaAIC), 
+#             .funs = funs(round,.args = list(digits=0)))
+# 
+# AIC_table
 
 # Predict GAM
 ## data to predict at

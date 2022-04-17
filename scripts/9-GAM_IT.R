@@ -4,8 +4,6 @@
 rm(list=ls(all=TRUE))
 #setwd("~/coastalrivercoupling")
 
-## incorporate a dummy variable of presence of river regime shift or breakpoints of predictors
-
 # load functions used
 library(FSSgam)
 library(mgcv)
@@ -18,18 +16,22 @@ head(data_full)
 str(data_full)
 data_full$Species
 
-taxa <- "Anguilla|Dicentrarchus labrax|Mullet|Sparus"
-taxa <- "Anguilla"
+# read in breakpoints river environment
+breakpoints_river <- read.csv("outputs/breakpoints_river.csv", row.names = 1)
+
+# taxa <- "Anguilla|Dicentrarchus labrax|Mullet|Sparus"
+# taxa <- "Anguilla"
 
 # This is for average variables across Year while holding lagoon for random effects
 data_spp_env <- data_full %>% 
   filter(!Lagoon=="Platjola" & !Lagoon=="Clot - Baseta") %>% #filter out 
   droplevels() %>%
-  filter(str_detect (Species, taxa)) %>% #select species to be modeled
-  dplyr::select(Year, flow_che, SRP, Lagoon, Species, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
-                qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature) %>%
-  group_by(Year, Lagoon, Species) %>%
+  group_by(Year, Lagoon) %>%
+  dplyr::select(Year, flow_che, SRP_che, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
+                qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature, QMax, QMean) %>%
   summarise(across(everything(), mean, na.rm=TRUE)) %>%
+  mutate(qmedmes_lag1=lag(qmedmes)) %>% #create a lagged variable for historical flow
+  left_join(breakpoints_river, by="Year") %>% #join with river environmental dataset of breakpoints
   as.data.frame()
 
 names(data_spp_env)
@@ -50,17 +52,21 @@ for (i in pred.vars) {
 }
 
 # Run the full subset model selection----
-resp.vars <- unique(as.character(data_spp_env$Species))
+loop.vars <- unique(as.character(data_spp_env$Species)) #loop through species
+loop.vars <- unique(as.character(data_spp_env$Lagoon)) #loop through lagoons
+
 #resp.vars <- resp.vars[-9] 
 setwd("~/coastalrivercoupling/outputs") #Set wd for example outputs - will differ on your computer
 
 # specify predictors
-cyclic.vars <- c("Year")
+#cyclic.vars <- c("Year")
 factor.vars <- c("Lagoon")
 pred.vars <- c("Year", "flow_che", "Chl.Total")
 response.var <- c("mean_biomass_log")
 
 use.dat <- na.omit(data_spp_env[,c(factor.vars,response.var,pred.vars, "Species")]) #get rid off NAs
+use.dat <- na.omit(data_spp_env[,c(factor.vars,response.var,pred.vars, "Lagoon")]) #get rid off NAs
+
 out.all <- list()
 var.imp <- list()
 fss.all <- list()
@@ -68,21 +74,16 @@ top.all <- list()
 i=1
 
 # Loop through the FSS function for each Taxa----
-for(i in 1:length(resp.vars)){
-  
-  use.dat <- use.dat[which(use.dat$Species==resp.vars[i]),]
+for(i in 1:length(loop.vars)){
+  use.dat <- use.dat[which(use.dat$Species==resp.vars[i]),] #loop through species
+  use.dat <- use.dat[which(use.dat$Lagoon==lagoon.vars[i]),] #loop through lagoons
   
   Model1 <- gam(mean_biomass_log ~ s(Year, k=10, bs="cc"),
              data=use.dat, method = "REML")
-  
   model.set <- generate.model.set(use.dat=use.dat,
                                test.fit=Model1,
-                               factor.smooth.interactions = TRUE,
-                               cyclic.vars=cyclic.vars,
                                pred.vars.cont=pred.vars, 
                                max.predictors = 3)
-  
-  
   out.list=fit.model.set(model.set)
   #names(out.list)
   # examine the list of failed models
@@ -136,4 +137,57 @@ dev.off()
 # write.csv(all.mod.fits[,-2],"all_model_fits_functional_biomass.csv")
 # write.csv(top.mod.fits[,-2],"top_model_fits_functional_biomass.csv")
 # write.csv(model.set$predictor.correlations,"predictor_correlations.csv")
+
+
+## Individual models for each lagoon
+use.dat <- data_spp_env 
+
+# specify predictors
+pred.vars <- c("Year", "flow_che", "Chl.Total", "qmedmes", "SRP_che", "TOC", "NO3", "Wind_speed", "Sea_level_pressure",
+               "QMax", "qmedmes_lag1", 'chla_breakpoinnt', 'flow_breakpoinnt', 'PO4_breakpoinnt')
+response.var <- c("mean_biomass_log")
+
+use.dat <- na.omit(data_spp_env[,c(response.var,pred.vars, "Lagoon")]) #get rid off NAs
+
+start.fit <- gam(mean_biomass_log ~ s(Year, bs="cc", k=10) +
+                s(Lagoon, bs="re"),
+              family= gaussian(link = "identity"),
+              data=use.dat, method="REML", select=TRUE)
+
+model.set <- generate.model.set(use.dat=use.dat,
+                             test.fit=start.fit,
+                             pred.vars.cont=pred.vars,
+                             max.predictors=3)
+
+out.list <- fit.model.set(model.set,parallel=T)
+names(out.list)
+
+#write.csv(out.list$predictor.correlations,"predictor_correlations.csv")
+out.list$predictor.correlations
+
+# examine the list of failed models
+length(out.list$failed.models)
+length(out.list$success.models)
+
+# look at the model selection table
+mod.table=out.list$mod.data.out
+mod.table=mod.table[order(mod.table$AICc),]
+head(mod.table)
+#write.csv(mod.table[,-2],"modfits.csv")
+
+barplot(out.list$variable.importance$bic$variable.weights.raw,las=2,
+        ylab="Relative variable importance")
+
+write.csv(model.set$predictor.correlations,"predictor_correlations.csv")
+
+# extract the best model
+mod.table=mod.table[order(mod.table$AIC),]
+head(mod.table)
+
+best.model=out.list$success.models[[as.character(mod.table$modname[1])]]
+plot(best.model,all.terms=T,pages=1)
+
+gam.check(best.model)
+draw(best.model, residuals=TRUE)
+summary(best.model)
 

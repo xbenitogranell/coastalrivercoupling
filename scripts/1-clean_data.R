@@ -8,7 +8,7 @@ catches_raw <- read.csv("data/catches_lagoons_years_raw.csv", sep = ";") #from t
 str(catches_raw)
 
 #transform relevant columns to factors or numeric
-catches_raw$ï..Name <- as.factor(catches_raw$ï..Name)
+catches_raw$Name <- as.factor(catches_raw$Name)
 catches_raw$Common_name <- as.factor(catches_raw$Common_name)
 catches_raw$Stage <- as.factor(catches_raw$Stage)
 catches_raw$Group <- as.factor(catches_raw$Group)
@@ -26,9 +26,6 @@ colnames(catches_raw)[2] <- "commonName"
 
 #Save dataset for posterior analysis
 #write.csv(catches_raw, "data/catches_clean.csv")
-
-# Assign new name to the dataframe
-catches_clean <- catches_raw
 
 #### Read in environmental data
 ## CHE data
@@ -109,10 +106,6 @@ str(flow_che)
 df1 <- data.frame(apply(apply(flow_che[,3:ncol(flow_che)], 2, gsub, patt=",", replace="."), 2, as.numeric))
 flow_che <- cbind(flow_che[,1:2], df1) 
 
-#Read in catches lagoons clean data
-catches_clean <- read.csv("data/catches_clean.csv")[-1]
-str(catches_clean)
-
 #Species to be included in dataset (>30% average biomass)
 include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
              "Atherina boyeri", "Dicentrarchus labrax", "Liza ramada", "Sprattus sprattus")
@@ -129,25 +122,26 @@ fishes_spp <- catches_clean %>%
   as.data.frame()
 
 # subset river flow from CHE AND other physico-chemical variables (CAT) and climatic data, and JOIN with fish catches
-data_full <- data_che_Tortosa %>% dplyr::select(c(2,3,4,7,8,12,15,18,19,21,22,23,24,32)) %>%
-  rename(alkalinity=4) %>%
-  rename(ammonia_che=5) %>%
-  rename(flow_che=6) %>%
-  rename(DBO_che=7) %>%
-  rename(SRP_che=8) %>%
-  rename(total_phosphorous_che=9) %>%
-  rename(SuspendedSolids_che=10) %>%
-  rename(Nitrates_che=11) %>%
-  rename(Nitrites_che=12) %>%
-  rename(total_nitrogen_che=13) %>%
-  rename(WaterT_che=14) %>%
-  full_join(fishes_spp, by = 'Year') %>% #here join with mean fishes catches across lagoons
+data_full <- data_che_Tortosa %>% dplyr::select(c(3,4,7,8,12,15,18,19,21,22,23,24,32)) %>%
+  rename(alkalinity=3) %>%
+  rename(ammonia_che=4) %>%
+  rename(flow_che=5) %>%
+  rename(DBO_che=6) %>%
+  rename(SRP_che=7) %>%
+  rename(total_phosphorous_che=8) %>%
+  rename(SuspendedSolids_che=9) %>%
+  rename(Nitrates_che=10) %>%
+  rename(Nitrites_che=11) %>%
+  rename(total_nitrogen_che=12) %>%
+  rename(WaterT_che=13) %>%
+  full_join(fishes_spp[c("Year", "Species", "Lagoon", "mean_biomass", "mean_biomass_log")], by = 'Year') %>% #here join with mean fishes catches across lagoons
+  full_join(hist_flow[c("Year","qmedmes")], by=c('Year')) %>% #here historical flow from CHE dataset
   left_join(data_cat[c("Year", "Month", "Chl.Total", "TOC", "NO3", "NO2", "NH4")], by=c("Year", "Month")) %>% #here join chl data from CAT dataset
-  full_join(hist_flow[c("Year", "Month", "qmedmes")], by=c('Year', 'Month')) %>% #here historical flow from CHE dataset
   full_join(climatic_data[c("Year", 'Month', 'Wind_direction', 'Wind_speed', 'Sea_level_pressure', 'Precipitation', 'Mean_temperature', 'Min_temperature', 'Max_temperature')], by=c('Year', 'Month')) %>% #here climatic data (Tortosa station)
-  full_join(flow_che, by=c("Year", "Month"))
+  full_join(flow_che, by=c("Year", "Month")) %>%
+  filter(Year>=1964)
 
-head(data_full)
+str(data_full)
 
 ## quick plot the data
 ggplot(data=gather(data_full, variable, value, -Year, -Year2, -Day, -Month), 

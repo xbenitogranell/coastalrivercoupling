@@ -8,6 +8,7 @@ library(tidyverse)
 library(ggplot2)
 #library(gratia) # for visualizing GAM model outputs
 library(party) #to perform Random Forest
+library(randomForestSRC) #to perform Random Forest
 
 # read in full data including river physico-chemical (from CHE, CAT), river flow (CHE), historical river flow (CHE), and mean fish catches (averaged across lagoons)
 data_full <- read.csv("outputs/river_fisheries_lagoon_spp_data.csv",row.names=1)
@@ -25,7 +26,7 @@ data_spp_env <- data_full %>%
   filter(!Lagoon=="Platjola" & !Lagoon=="Clot - Baseta") %>% #filter out 
   droplevels() %>%
   group_by(Year) %>%
-  dplyr::select(-Month, -Year) %>%
+  dplyr::select(-Month, -Day, -Year2) %>%
   # dplyr::select(Year, flow_che, SRP_che, mean_biomass, mean_biomass_log, Chl.Total, TOC, NO3, NO2, NH4,
   #               qmedmes, Wind_direction, Wind_speed, Sea_level_pressure, Precipitation, Mean_temperature, QMax, QMean) %>%
   summarise(across(everything(), mean, na.rm=TRUE)) %>%
@@ -66,6 +67,9 @@ data_spp_env$WaterT_che <- log10(data_spp_env$WaterT_che + 0.25)
 #use.dat <- na.omit(data_spp_env[,c(response.var,pred.vars)]) #get rid off NAs
 use.dat <- data_spp_env %>% select(-Year, -mean_biomass)
 
-set.seed(42)
-catches.rf <- cforest(mean_biomass_log ~ ., data = use.dat, control = cforest_unbiased(mtry = 5, ntree = 200))
-barplot(varimp(catches.rf))
+set.seed (1234)
+catches.rf <- rfsrc(mean_biomass_log ~ ., mtry = 5, ntree = 5000, importance = "random", 
+                    data=use.dat)
+
+catches.rf
+plot(gg_error(catches.rf))

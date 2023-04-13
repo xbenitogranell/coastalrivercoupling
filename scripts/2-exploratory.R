@@ -8,8 +8,10 @@ library(tidyverse)
 library(ggplot2)
 
 #Read in catches lagoons clean data
-catches_clean <- read.csv("data/catches_clean.csv")[-1]
+catches_clean <- read.csv("outputs/catches_clean_1965_2010.csv")[-1]
 str(catches_clean)
+
+range(catches_clean$Year2)
 
 #Calculate average biomass per year and lagoon
 year_mean_biomass <- catches_clean %>%

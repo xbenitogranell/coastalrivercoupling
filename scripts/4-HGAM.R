@@ -14,6 +14,7 @@ library(cowplot)
 #Read in catches lagoons clean data
 catches_clean <- read.csv("data/catches_clean.csv")[-1]
 str(catches_clean)
+range(catches_clean$Year2)
 
 #Species to be included in the models (>30% average biomass)
 include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
@@ -140,17 +141,21 @@ ggsave("outputs/taxa_HGAM.png",
        dpi = 400)
 
 ## This chunk will model individual species among lagoons
-taxa <- "Anguilla anguilla" 
+include <- c("Anguilla anguilla", "Cyprinus carpio", "Mullet ind.", "Sparus aurata",
+             "Liza ramada", "Sprattus sprattus")
+
+taxa <- "Cyprinus carpio" 
+
 
 taxa_data <- catches_clean %>%
   filter(!is.na(Kgs)) %>% #remove NANs
+  filter(Species==taxa) %>%
   #group_by(Year2, Species, Lagoon) %>%
   group_by(Year2, Lagoon) %>%
   summarise(mean_biomass = mean(Kgs,na.rm=T)) %>%
   mutate(mean_biomass_log = log(mean_biomass)) %>%
   mutate(year_f=factor(Year2)) %>%
   #mutate(spp=factor(Species)) %>%
-  #filter(Species==taxa) %>%
   mutate(lagoon_f=factor(Lagoon)) %>%
   filter(!lagoon_f %in% c("Clot - Baseta", "Platjola")) %>% #few occurrences
   as.data.frame()
@@ -252,7 +257,7 @@ taxa_plot_model_labels = factor(taxa_plot_model_labels,
 
 # Plot
 #define title
-title <- taxa_data$Species[1]
+title <- taxa_data$Species
 
 taxa_plot <- ggplot(taxa_plot_data, aes(x=Year2))+
   facet_wrap(~lagoon_f, nrow = 2)+
